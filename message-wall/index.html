@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Computx Message Boards</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: black;
+            color: white;
+            overflow: hidden;
+            margin: 0;
+        }
+        #messages {
+            position: fixed;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .message {
+            position: absolute;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 12px;
+            white-space: nowrap;
+            font-size: 18px;
+            opacity: 1;
+            transition: transform 0.2s ease-in-out, opacity 1s ease-in-out;
+        }
+        input, button {
+            padding: 10px;
+            font-size: 16px;
+            border: none;
+            margin: 5px;
+            border-radius: 5px;
+        }
+        input {
+            width: 200px;
+        }
+        button {
+            background: rgb(255, 90, 90);
+            color: black;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>💬 Computx Message Wall </h1>
+    <input type="text" id="username" placeholder="輸入你的名字">
+    <input type="text" id="messageInput" placeholder="輸入留言...">
+    <button id="sendButton">SEND</button>
+    
+    <div id="messages"></div>
+
+    <!-- Firebase + JavaScript -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // Firebase 配置
+        const firebaseConfig = {
+            apiKey: "AIzaSyC5pu5Mk2phuq0LcSx_z7f4LCTOeA4pPT8",
+            authDomain: "computx--message-boards.firebaseapp.com",
+            projectId: "computx--message-boards",
+            storageBucket: "computx--message-boards.appspot.com",
+            messagingSenderId: "513416659811",
+            appId: "1:513416659811:web:603ef4eb61df4c0666c956"
+        };
+
+        // 初始化 Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 監聽 Firestore 並動態新增留言
+        let usedPositions = []; // 記錄已使用的位置，避免重疊
+        const messageSpacing = 60; // 留言間距
+        const maxHeight = window.innerHeight * 0.8; // 限制留言掉落範圍
+        const MAX_MESSAGES = 50; // 設定最多 50 則留言
+
+        onSnapshot(query(collection(db, "messages"), orderBy("timestamp", "asc")), (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added") {
+                    const data = change.doc.data();
+                    createFallingMessage(data.username, data.text, data.emoji);
+                }
+            });
+        });
+
+        // 📝 發送留言
+        function sendMessage() {
+            const username = document.getElementById("username").value.trim() || "匿名";
+            const messageInput = document.getElementById("messageInput");
+            const message = messageInput.value.trim();
+            
+            if (message !== "") {
+                addDoc(collection(db, "messages"), {
+                    username: username,
+                    text: message,
+                    emoji: getRandomEmoji(),
+                    timestamp: serverTimestamp(),
+                }).then(() => {
+                    messageInput.value = ""; // 清空輸入框
+                }).catch((error) => {
+                    console.error("發送留言失敗:", error);
+                });
+            }
+        }
+
+        // 確保 sendMessage 可被全域存取
+        window.sendMessage = sendMessage;
+
+        // 綁定按鈕點擊事件
+        document.getElementById("sendButton").addEventListener("click", sendMessage);
+
+        // 監聽 Enter 鍵送出留言
+        document.addEventListener("DOMContentLoaded", function () {
+            document.getElementById("messageInput").addEventListener("keydown", function (event) {
+                if (event.key === "Enter") {
+                    sendMessage();
+                }
+            });
+        });
+
+        // 🌧️ 留言掉落並隨機堆疊
+        function createFallingMessage(username, text, emoji) {
+            const messagesContainer = document.getElementById("messages");
+
+            // 如果留言超過 50 則，移除最舊的留言
+            if (messagesContainer.children.length >= MAX_MESSAGES) {
+                messagesContainer.removeChild(messagesContainer.firstChild);
+            }
+
+            const messageDiv = document.createElement("div");
+            messageDiv.classList.add("message");
+            messageDiv.innerHTML = `<strong>${username}</strong>: ${emoji} ${text}`;
+
+            // 隨機決定背景顏色（紅色或藍色）
+            messageDiv.style.backgroundColor = Math.random() > 0.5 ? "rgba(255, 0, 0, 0.7)" : "rgba(0, 0, 255, 0.7)";
+
+            // 隨機字體大小（18px ~ 60px）
+            let fontSize = Math.floor(Math.random() * (60 - 18 + 1)) + 18;
+            messageDiv.style.fontSize = fontSize + "px";
+
+            messagesContainer.appendChild(messageDiv);
+
+            // 計算隨機堆疊位置
+            let targetY = getRandomStackPosition(fontSize);
+            let targetX = Math.random() * (window.innerWidth - 200);
+
+            messageDiv.style.left = targetX + "px";
+            messageDiv.style.top = "-50px"; // 初始位置在螢幕外
+            messageDiv.style.opacity = "1";
+
+            let pos = -50;
+            const fallSpeed = 5;
+            function fall() {
+                if (pos < targetY) {
+                    pos += fallSpeed;
+                    messageDiv.style.top = pos + "px";
+                    requestAnimationFrame(fall);
+                } else {
+                    bounceEffect(messageDiv);
+                }
+            }
+            fall();
+        }
+
+        // 📌 取得隨機堆疊位置（確保不會重疊）
+        function getRandomStackPosition(fontSize) {
+            let yPos;
+            let attempts = 0;
+            let spacing = fontSize + 20; // 根據字體大小調整間距
+
+            do {
+                yPos = Math.random() * maxHeight;
+                attempts++;
+            } while (usedPositions.some(pos => Math.abs(pos - yPos) < spacing) && attempts < 10);
+
+            usedPositions.push(yPos);
+            return yPos;
+        }
+
+        // 🎲 隨機 Emoji
+        function getRandomEmoji() {
+            const emojis = ["😀", "😂", "😎", "🔥", "🚀", "🎉", "💖", "✨", "😜", "🌈"];
+            return emojis[Math.floor(Math.random() * emojis.length)];
+        }
+    </script>
+
+</body>
+</html>
